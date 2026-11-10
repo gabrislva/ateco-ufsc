@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Painel de Reembolsos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<header class="topo">
+  <div class="marca"><span class="selo" data-sigla>R</span><div><span data-org></span><small>Reembolsos</small></div></div>
+  <nav>
+    <a href="index.html">Solicitar</a>
+    <a href="painel.html" aria-current="page">Painel</a>
+  </nav>
+</header>
+
+<!-- Entrada -->
+<main class="coluna" id="tela-login">
+  <section class="cartao">
+    <header>
+      <h1>Painel de aprovação</h1>
+      <p>Área do aprovador e do financeiro. Entre com a chave de acesso que o administrador do sistema passou para você.</p>
+    </header>
+    <form id="form-login" class="grade" novalidate>
+      <div class="campo"><label for="responsavel">Seu nome</label><input id="responsavel" autocomplete="name" required><span class="dica">Fica registrado em cada decisão.</span></div>
+      <div class="campo"><label for="chave">Chave de acesso</label><input id="chave" type="password" autocomplete="current-password" required></div>
+      <div id="erro-login" class="aviso erro inteiro" hidden role="alert"></div>
+      <div class="acoes inteiro"><button class="btn" id="entrar" type="submit">Entrar</button></div>
+    </form>
+  </section>
+</main>
+
+<!-- Painel -->
+<main class="largo" id="tela-painel" hidden>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="display:grid;gap:2px">
+      <h1>Pedidos de reembolso</h1>
+      <span class="dica" id="quem" style="color:var(--muted)"></span>
+    </div>
+    <div class="acoes">
+      <button class="btn sec peq" id="atualizar" type="button">Atualizar</button>
+      <button class="btn sec peq" id="exportar" type="button">Exportar CSV</button>
+      <button class="btn sec peq" id="sair" type="button">Sair</button>
+    </div>
+  </div>
+
+  <div class="resumo" id="resumo"></div>
+
+  <div class="filtros">
+    <input id="f-busca" type="search" placeholder="Buscar por nome, protocolo ou descrição" aria-label="Buscar">
+    <select id="f-projeto" aria-label="Projeto"><option value="">Todos os projetos</option></select>
+    <select id="f-categoria" aria-label="Categoria"><option value="">Todas as categorias</option></select>
+    <input id="f-de" type="date" aria-label="Despesa a partir de">
+    <input id="f-ate" type="date" aria-label="Despesa até">
+  </div>
+
+  <div id="erro-painel" class="aviso erro" hidden role="alert"></div>
+
+  <div class="tabela-wrap">
+    <table>
+      <thead><tr>
+        <th>Protocolo</th><th>Solicitante</th><th>Projeto</th><th>Categoria</th><th>Despesa</th><th class="num">Valor</th><th>Status</th>
+      </tr></thead>
+      <tbody id="linhas"></tbody>
+    </table>
+    <div class="vazio" id="vazio" hidden></div>
+  </div>
+</main>
+
+<dialog id="detalhe" aria-labelledby="d-titulo">
+  <div class="det">
+    <header>
+      <div style="display:grid;gap:6px">
+        <h2 id="d-titulo" class="mono"></h2>
+        <span id="d-status"></span>
+      </div>
+      <button class="fechar" id="d-fechar" type="button" aria-label="Fechar">×</button>
+    </header>
+    <dl id="d-dados"></dl>
+    <div>
+      <div class="dica" style="color:var(--muted);margin-bottom:6px">Histórico</div>
+      <div class="historico" id="d-hist"></div>
+    </div>
+    <div class="campo" id="d-bloco-coment">
+      <label for="d-coment">Comentário para o solicitante</label>
+      <textarea id="d-coment" placeholder="Obrigatório ao recusar. Ex.: comprovante ilegível, envie uma foto mais nítida."></textarea>
+    </div>
+    <div id="d-erro" class="aviso erro" hidden role="alert"></div>
+    <div class="acoes" id="d-acoes"></div>
+  </div>
+</dialog>
+
+<script src="config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  API.aplicarMarca();
+
+  let sessao = null;          // { chave, responsavel, papel }
+  let pedidos = [];
+  let filtroStatus = '';
+  let atual = null;
+
+  // Sessão fica só nesta aba do navegador
+  try { sessao = JSON.parse(sessionStorage.getItem('reemb-sessao') || 'null'); } catch (e) {}
+
+  $('form-login').addEventListener('submit', async e => {
+    e.preventDefault();
+    const nome = $('responsavel').value.trim(), chave = $('chave').value.trim(), box = $('erro-login');
+    if (!nome || !chave) { box.textContent = 'Preencha seu nome e a chave de acesso.'; box.hidden = false; return; }
+    $('entrar').disabled = true; box.hidden = true;
+    try {
+      const r = await API.post({ action: 'login', chave });
+      sessao = { chave, responsavel: nome, papel: r.papel };
+      try { sessionStorage.setItem('reemb-sessao', JSON.stringify(sessao)); } catch (e) {}
+      abrirPainel();
+    } catch (err) { box.textContent = err.message; box.hidden = false; }
+    finally { $('entrar').disabled = false; }
+  });
+
+  $('sair').addEventListener('click', () => {
+    sessao = null; try { sessionStorage.removeItem('reemb-sessao'); } catch (e) {}
+    $('tela-painel').hidden = true; $('tela-login').hidden = false; $('chave').value = '';
+  });
+
+  function abrirPainel() {
+    $('tela-login').hidden = true; $('tela-painel').hidden = false;
+    $('quem').textContent = sessao.responsavel + ' · ' + (sessao.papel === 'financeiro' ? 'Financeiro (aprova e paga)' : 'Aprovador');
+    carregar();
+  }
+
+  async function carregar() {
+    $('atualizar').disabled = true; $('erro-painel').hidden = true;
+    $('vazio').hidden = false; $('vazio').textContent = 'Carregando pedidos…'; $('linhas').innerHTML = '';
+    try {
+      const r = await API.post({ action: 'listar', chave: sessao.chave });
+      pedidos = r.pedidos;
+      opcoes($('f-projeto'), 'projeto', 'Todos os projetos');
+      opcoes($('f-categoria'), 'categoria', 'Todas as categorias');
+      render();
+    } catch (err) {
+      $('erro-painel').textContent = 'Não foi possível carregar: ' + err.message; $('erro-painel').hidden = false;
+      $('vazio').hidden = true;
+      if (/chave/i.test(err.message)) $('sair').click();
+    } finally { $('atualizar').disabled = false; }
+  }
+  $('atualizar').addEventListener('click', carregar);
+
+  function opcoes(sel, campo, rotulo) {
+    const atualV = sel.value;
+    const vals = [...new Set(pedidos.map(p => p[campo]).filter(Boolean))].sort();
+    sel.innerHTML = '';
+    [['', rotulo], ...vals.map(v => [v, v])].forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); });
+    sel.value = vals.includes(atualV) ? atualV : '';
+  }
+
+  function filtrados(ignorarStatus) {
+    const q = $('f-busca').value.trim().toLowerCase();
+    const proj = $('f-projeto').value, cat = $('f-categoria').value, de = $('f-de').value, ate = $('f-ate').value;
+    return pedidos.filter(p =>
+      (ignorarStatus || !filtroStatus || p.status === filtroStatus) &&
+      (!proj || p.projeto === proj) && (!cat || p.categoria === cat) &&
+      (!de || p.dataDespesa >= de) && (!ate || p.dataDespesa <= ate) &&
+      (!q || [p.protocolo, p.nome, p.email, p.descricao].join(' ').toLowerCase().includes(q)));
+  }
+
+  function render() {
+    // Resumo por status (respeita os outros filtros)
+    const base = filtrados(true);
+    const res = $('resumo'); res.innerHTML = '';
+    ['Pendente', 'Aprovado', 'Pago', 'Recusado'].forEach(st => {
+      const itens = base.filter(p => p.status === st);
+      const b = document.createElement('button'); b.type = 'button';
+      b.setAttribute('aria-pressed', String(filtroStatus === st));
+      const rot = document.createElement('span'); rot.className = 'rot'; rot.textContent = st === 'Aprovado' ? 'A pagar' : st === 'Pendente' ? 'Aguardando análise' : st === 'Pago' ? 'Pagos' : 'Recusados';
+      const q = document.createElement('span'); q.className = 'qtd'; q.textContent = itens.length;
+      const s = document.createElement('span'); s.className = 'soma'; s.textContent = API.dinheiro(itens.reduce((a, p) => a + p.valor, 0));
+      b.append(rot, q, s);
+      b.addEventListener('click', () => { filtroStatus = filtroStatus === st ? '' : st; render(); });
+      res.appendChild(b);
+    });
+
+    const lista = filtrados(false), tb = $('linhas'); tb.innerHTML = '';
+    lista.forEach(p => {
+      const tr = document.createElement('tr'); tr.tabIndex = 0;
+      const cel = (txt, cls) => { const td = document.createElement('td'); td.textContent = txt; if (cls) td.className = cls; tr.appendChild(td); return td; };
+      cel(p.protocolo, 'mono');
+      const tdN = cel(p.nome); const sm = document.createElement('div'); sm.className = 'dica'; sm.style.color = 'var(--muted)'; sm.textContent = p.email; tdN.appendChild(sm);
+      cel(p.projeto); cel(p.categoria); cel(API.dataBR(p.dataDespesa)); cel(API.dinheiro(p.valor), 'num');
+      const tdS = document.createElement('td'); const pl = document.createElement('span'); pl.className = 'pilula st-' + p.status; pl.textContent = p.status; tdS.appendChild(pl); tr.appendChild(tdS);
+      tr.addEventListener('click', () => abrir(p));
+      tr.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(p); } });
+      tb.appendChild(tr);
+    });
+    $('vazio').hidden = lista.length > 0;
+    $('vazio').textContent = pedidos.length ? 'Nenhum pedido com esses filtros.' : 'Nenhum pedido ainda. Os pedidos enviados pelo formulário aparecem aqui.';
+  }
+  ['f-busca', 'f-projeto', 'f-categoria', 'f-de', 'f-ate'].forEach(id => $(id).addEventListener('input', render));
+
+  // Detalhe
+  function abrir(p) {
+    atual = p;
+    $('d-titulo').textContent = p.protocolo;
+    $('d-status').innerHTML = ''; const pl = document.createElement('span'); pl.className = 'pilula st-' + p.status; pl.textContent = p.status; $('d-status').appendChild(pl);
+    const dl = $('d-dados'); dl.innerHTML = '';
+    const campos = [
+      ['Solicitante', p.nome], ['E-mail', p.email], ['Projeto / setor', p.projeto], ['Categoria', p.categoria],
+      ['Data da despesa', API.dataBR(p.dataDespesa)], ['Valor', API.dinheiro(p.valor)], ['Descrição', p.descricao],
+      ['Chave PIX', p.pix || '—'], ['Dados bancários', p.banco || '—'], ['Comprovante', p.comprovante],
+      ['Enviado em', API.dataBR(p.criadoEm)]
+    ];
+    if (p.decididoPor) campos.push(['Analisado por', p.decididoPor + ' em ' + API.dataBR(p.decididoEm)]);
+    if (p.pagoEm) campos.push(['Pago em', API.dataBR(p.pagoEm)]);
+    if (p.comentario) campos.push(['Último comentário', p.comentario]);
+    campos.forEach(([k, v]) => {
+      const dt = document.createElement('dt'); dt.textContent = k;
+      const dd = document.createElement('dd');
+      if (k === 'Comprovante' && /^https:\/\//.test(v)) { const a = document.createElement('a'); a.href = v; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Abrir comprovante no Drive'; dd.appendChild(a); }
+      else { dd.textContent = v; if (k === 'Valor') dd.className = 'num'; }
+      dl.append(dt, dd);
+    });
+    $('d-hist').textContent = p.historico || '—';
+    $('d-coment').value = ''; $('d-erro').hidden = true;
+
+    const acoes = $('d-acoes'); acoes.innerHTML = '';
+    const botao = (rot, st, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || ''); b.textContent = rot; b.addEventListener('click', () => mudar(st, b)); acoes.appendChild(b); };
+    if (p.status === 'Pendente') { botao('Aprovar', 'Aprovado'); botao('Recusar', 'Recusado', 'perigo'); }
+    if (p.status === 'Aprovado') {
+      if (sessao.papel === 'financeiro') botao('Marcar como pago', 'Pago');
+      botao('Voltar para análise', 'Pendente', 'sec'); botao('Recusar', 'Recusado', 'perigo');
+    }
+    if (p.status === 'Recusado') botao('Reabrir pedido', 'Pendente', 'sec');
+    $('d-bloco-coment').hidden = p.status === 'Pago';
+    if (p.status === 'Pago') { const s = document.createElement('span'); s.className = 'dica'; s.style.color = 'var(--muted)'; s.textContent = 'Pedido concluído. Nenhuma ação pendente.'; acoes.appendChild(s); }
+    $('detalhe').showModal();
+  }
+  $('d-fechar').addEventListener('click', () => $('detalhe').close());
+  $('detalhe').addEventListener('click', e => { if (e.target === $('detalhe')) $('detalhe').close(); });
+
+  async function mudar(status, btn) {
+    const coment = $('d-coment').value.trim(), box = $('d-erro');
+    if (status === 'Recusado' && !coment) { box.textContent = 'Escreva o motivo da recusa no comentário. O solicitante recebe essa mensagem.'; box.hidden = false; $('d-coment').focus(); return; }
+    $('d-acoes').querySelectorAll('button').forEach(b => b.disabled = true);
+    const txt = btn.textContent; btn.textContent = 'Salvando…'; box.hidden = true;
+    try {
+      await API.post({ action: 'atualizar', chave: sessao.chave, responsavel: sessao.responsavel, protocolo: atual.protocolo, status, comentario: coment });
+      $('detalhe').close();
+      await carregar();
+    } catch (err) {
+      box.textContent = err.message; box.hidden = false;
+      $('d-acoes').querySelectorAll('button').forEach(b => b.disabled = false); btn.textContent = txt;
+    }
+  }
+
+  // Exportar CSV (separador ; para abrir certo no Excel em português)
+  $('exportar').addEventListener('click', () => {
+    const cols = [['protocolo', 'Protocolo'], ['criadoEm', 'Enviado em'], ['nome', 'Nome'], ['email', 'E-mail'], ['projeto', 'Projeto'], ['categoria', 'Categoria'],
+      ['dataDespesa', 'Data da despesa'], ['valor', 'Valor'], ['descricao', 'Descrição'], ['status', 'Status'], ['decididoPor', 'Analisado por'],
+      ['decididoEm', 'Analisado em'], ['pagoEm', 'Pago em'], ['comentario', 'Comentário'], ['comprovante', 'Comprovante']];
+    const esc = v => { let s = String(v == null ? '' : v); if (/^[=+\-@]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
+    const linhas = [cols.map(c => esc(c[1])).join(';')].concat(filtrados(false).map(p =>
+      cols.map(([k]) => k === 'valor' ? esc(p.valor.toFixed(2).replace('.', ',')) : esc(p[k])).join(';')));
+    const blob = new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'reembolsos-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+
+  if (sessao) abrirPainel();
+})();
+</script>
+</body>
+</html>

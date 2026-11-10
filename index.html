@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pedido de Reembolso</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<header class="topo">
+  <div class="marca"><span class="selo" data-sigla>R</span><div><span data-org></span><small>Reembolsos</small></div></div>
+  <nav>
+    <a href="index.html" aria-current="page">Solicitar</a>
+    <a href="#consulta">Consultar</a>
+    <a href="painel.html">Painel</a>
+  </nav>
+</header>
+
+<main class="coluna">
+  <section class="cartao" id="secao-form">
+    <header>
+      <h1>Pedido de reembolso</h1>
+      <p id="orientacao"></p>
+    </header>
+
+    <div id="aviso-config" class="aviso erro" hidden></div>
+
+    <form id="form" novalidate>
+      <div style="display:grid;gap:24px">
+        <fieldset>
+          <legend>Quem está pedindo</legend>
+          <div class="grade">
+            <div class="campo"><label for="nome">Nome completo</label><input id="nome" name="nome" autocomplete="name" required></div>
+            <div class="campo"><label for="email">E-mail</label><input id="email" name="email" type="email" autocomplete="email" required><span class="dica">Você recebe as atualizações por aqui.</span></div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>A despesa</legend>
+          <div class="grade">
+            <div class="campo"><label for="projeto">Projeto ou setor</label><select id="projeto" name="projeto" required><option value="">Carregando…</option></select></div>
+            <div class="campo"><label for="categoria">Categoria</label><select id="categoria" name="categoria" required><option value="">Carregando…</option></select></div>
+            <div class="campo"><label for="dataDespesa">Data da despesa</label><input id="dataDespesa" name="dataDespesa" type="date" required></div>
+            <div class="campo"><label for="valor">Valor</label><div class="prefixo"><span>R$</span><input id="valor" name="valor" inputmode="decimal" placeholder="0,00" required></div></div>
+            <div class="campo inteiro"><label for="descricao">Descrição</label><textarea id="descricao" name="descricao" placeholder="Ex.: Uber da sede até a escola municipal para a oficina de leitura de 12/11." required></textarea></div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Comprovante</legend>
+          <label class="arquivo" id="zona-arquivo" for="arquivo">
+            <input id="arquivo" name="arquivo" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic" required>
+            <strong>Toque para anexar ou arraste o arquivo aqui</strong>
+            <span class="dica">Nota fiscal, cupom ou recibo · PDF, JPG ou PNG · até <span id="max-mb">10</span> MB</span>
+            <span class="nome" id="nome-arquivo"></span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Para onde enviar o dinheiro</legend>
+          <div class="grade">
+            <div class="campo"><label for="pix">Chave PIX</label><input id="pix" name="pix" placeholder="CPF, e-mail, telefone ou chave aleatória"></div>
+            <div class="campo"><label for="banco">Ou dados bancários</label><input id="banco" name="banco" placeholder="Banco, agência e conta"></div>
+          </div>
+        </fieldset>
+
+        <div id="erro-form" class="aviso erro" hidden role="alert"></div>
+        <div class="acoes"><button class="btn" id="enviar" type="submit">Enviar pedido</button></div>
+      </div>
+    </form>
+  </section>
+
+  <section class="cartao" id="secao-ok" hidden>
+    <div class="recibo">
+      <span class="dica">Pedido enviado. Guarde seu protocolo:</span>
+      <span class="protocolo" id="protocolo-gerado"></span>
+      <p style="margin:0;color:var(--muted)">Você vai receber um e-mail quando o pedido for analisado.</p>
+    </div>
+    <div class="acoes" style="justify-content:center">
+      <button class="btn sec" id="copiar" type="button">Copiar protocolo</button>
+      <button class="btn" id="novo" type="button">Fazer outro pedido</button>
+    </div>
+  </section>
+
+  <section class="cartao" id="consulta">
+    <header>
+      <h2>Consultar um pedido</h2>
+      <p>Use o protocolo que você recebeu ao enviar e o mesmo e-mail do pedido.</p>
+    </header>
+    <form id="form-consulta" class="grade" novalidate>
+      <div class="campo"><label for="c-protocolo">Protocolo</label><input id="c-protocolo" class="mono" placeholder="RB-2026-0001" required></div>
+      <div class="campo"><label for="c-email">E-mail</label><input id="c-email" type="email" required></div>
+      <div class="acoes inteiro"><button class="btn sec" id="consultar" type="submit">Consultar</button></div>
+    </form>
+    <div id="resultado-consulta" hidden></div>
+  </section>
+</main>
+
+<p class="rodape">Dúvidas sobre um reembolso? Fale com o financeiro da instituição.</p>
+
+<script src="config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  API.aplicarMarca();
+  $('orientacao').textContent = (window.CONFIG || {}).ORIENTACAO || '';
+  $('dataDespesa').max = new Date().toISOString().slice(0, 10);
+
+  let maxMB = 10;
+
+  function preencher(sel, itens) {
+    sel.innerHTML = '';
+    const vazio = document.createElement('option');
+    vazio.value = ''; vazio.textContent = 'Selecione…';
+    sel.appendChild(vazio);
+    itens.forEach(i => { const o = document.createElement('option'); o.value = i; o.textContent = i; sel.appendChild(o); });
+  }
+
+  async function carregarConfig() {
+    if (!API.configurado()) {
+      $('aviso-config').textContent = 'Sistema ainda não configurado: preencha API_URL no arquivo config.js.';
+      $('aviso-config').hidden = false;
+      preencher($('projeto'), []); preencher($('categoria'), []);
+      return;
+    }
+    try {
+      const c = await API.get({ action: 'config' });
+      preencher($('projeto'), c.projetos);
+      preencher($('categoria'), c.categorias);
+      maxMB = c.tamanhoMaxMB || 10;
+      $('max-mb').textContent = maxMB;
+    } catch (e) {
+      $('aviso-config').textContent = 'Não foi possível carregar as opções: ' + e.message;
+      $('aviso-config').hidden = false;
+    }
+  }
+  carregarConfig();
+
+  // Arquivo: clique ou arrastar
+  const zona = $('zona-arquivo'), inp = $('arquivo');
+  function mostrarArquivo() {
+    const f = inp.files[0];
+    $('nome-arquivo').textContent = f ? f.name + ' · ' + (f.size / 1048576).toFixed(1).replace('.', ',') + ' MB' : '';
+    zona.classList.toggle('ativo', !!f);
+  }
+  inp.addEventListener('change', mostrarArquivo);
+  ['dragenter', 'dragover'].forEach(ev => zona.addEventListener(ev, e => { e.preventDefault(); zona.classList.add('ativo'); }));
+  zona.addEventListener('dragleave', () => zona.classList.toggle('ativo', !!inp.files[0]));
+  zona.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files.length) { inp.files = e.dataTransfer.files; mostrarArquivo(); } });
+
+  function lerValor(s) {
+    s = String(s).trim().replace(/\s|R\$/g, '');
+    if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+    return Number(s);
+  }
+
+  function validar() {
+    const f = $('form');
+    const faltando = ['nome', 'email', 'projeto', 'categoria', 'dataDespesa', 'valor', 'descricao']
+      .filter(id => !f.elements[id].value.trim());
+    if (faltando.length) { f.elements[faltando[0]].focus(); return 'Preencha todos os campos da pessoa e da despesa.'; }
+    if (!f.elements.email.checkValidity()) return 'Confira o e-mail: ele parece incompleto.';
+    if (!(lerValor(f.elements.valor.value) > 0)) return 'Informe o valor em reais, por exemplo 45,90.';
+    const arq = inp.files[0];
+    if (!arq) return 'Anexe o comprovante da despesa.';
+    if (arq.size > maxMB * 1048576) return 'O arquivo tem mais de ' + maxMB + ' MB. Envie uma foto menor ou um PDF comprimido.';
+    if (!f.elements.pix.value.trim() && !f.elements.banco.value.trim()) return 'Informe uma chave PIX ou os dados bancários para receber o reembolso.';
+    return '';
+  }
+
+  $('form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const erro = validar(), box = $('erro-form');
+    box.hidden = !erro; box.textContent = erro;
+    if (erro) return;
+
+    const btn = $('enviar'); btn.disabled = true; btn.textContent = 'Enviando…';
+    try {
+      const f = e.target.elements, arq = inp.files[0];
+      const r = await API.post({
+        action: 'criar',
+        nome: f.nome.value, email: f.email.value, projeto: f.projeto.value, categoria: f.categoria.value,
+        dataDespesa: f.dataDespesa.value, valor: lerValor(f.valor.value), descricao: f.descricao.value,
+        pix: f.pix.value, banco: f.banco.value,
+        arquivo: { nome: arq.name, tipo: arq.type || 'application/octet-stream', base64: await API.arquivoParaBase64(arq) }
+      });
+      $('protocolo-gerado').textContent = r.protocolo;
+      $('c-protocolo').value = r.protocolo; $('c-email').value = f.email.value;
+      $('secao-form').hidden = true; $('secao-ok').hidden = false;
+      window.scrollTo({ top: 0 });
+    } catch (err) {
+      box.textContent = 'O pedido não foi enviado: ' + err.message; box.hidden = false;
+    } finally {
+      btn.disabled = false; btn.textContent = 'Enviar pedido';
+    }
+  });
+
+  $('copiar').addEventListener('click', async () => {
+    const t = $('protocolo-gerado').textContent;
+    try { await navigator.clipboard.writeText(t); $('copiar').textContent = 'Copiado'; }
+    catch (e) { const s = getSelection(), r = document.createRange(); r.selectNodeContents($('protocolo-gerado')); s.removeAllRanges(); s.addRange(r); }
+  });
+
+  $('novo').addEventListener('click', () => {
+    const f = $('form'); const nome = f.nome.value, email = f.email.value, pix = f.pix.value, banco = f.banco.value;
+    f.reset(); f.nome.value = nome; f.email.value = email; f.pix.value = pix; f.banco.value = banco;
+    mostrarArquivo(); $('copiar').textContent = 'Copiar protocolo';
+    $('secao-ok').hidden = true; $('secao-form').hidden = false;
+  });
+
+  $('form-consulta').addEventListener('submit', async e => {
+    e.preventDefault();
+    const out = $('resultado-consulta'), btn = $('consultar');
+    out.hidden = false; out.className = 'aviso info'; out.textContent = 'Consultando…';
+    btn.disabled = true;
+    try {
+      const { pedido: p } = await API.get({ action: 'status', protocolo: $('c-protocolo').value, email: $('c-email').value });
+      out.className = '';
+      out.innerHTML = '';
+      const dl = document.createElement('dl');
+      dl.style.cssText = 'display:grid;grid-template-columns:140px minmax(0,1fr);gap:8px 16px;margin:0';
+      const linhas = [
+        ['Protocolo', p.protocolo, 'mono'], ['Status', null], ['Categoria', p.categoria],
+        ['Valor', API.dinheiro(p.valor), 'num'], ['Enviado em', API.dataBR(p.criadoEm)]
+      ];
+      if (p.decididoEm) linhas.push(['Analisado em', API.dataBR(p.decididoEm)]);
+      if (p.pagoEm) linhas.push(['Pago em', API.dataBR(p.pagoEm)]);
+      if (p.comentario) linhas.push(['Comentário', p.comentario]);
+      linhas.forEach(([k, v, cls]) => {
+        const dt = document.createElement('dt'); dt.textContent = k; dt.style.color = 'var(--muted)';
+        const dd = document.createElement('dd'); dd.style.margin = '0';
+        if (k === 'Status') { const s = document.createElement('span'); s.className = 'pilula st-' + p.status; s.textContent = p.status; dd.appendChild(s); }
+        else { dd.textContent = v; if (cls) dd.className = cls; }
+        dl.append(dt, dd);
+      });
+      out.appendChild(dl);
+    } catch (err) {
+      out.className = 'aviso erro'; out.textContent = err.message;
+    } finally { btn.disabled = false; }
+  });
+})();
+</script>
+</body>
+</html>
